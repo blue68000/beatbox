@@ -144,7 +144,16 @@
             track.audioChunks = [];
             // 他の再生を止めるなどの処理は一旦なしで、重ね録音できるように
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 【修正前】
+                // const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 【修正後】マイクの自動補正をすべて「偽（false）」にする設定
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,  // エコーキャンセラーをオフ
+                        noiseSuppression: false,  // ノイズ除去をオフ
+                        autoGainControl: false    // ★自動ボリューム調整をオフ！
+                    }
+                });
                 track.mediaRecorder = new MediaRecorder(stream);
                 
                 track.mediaRecorder.ondataavailable = (e) => {
