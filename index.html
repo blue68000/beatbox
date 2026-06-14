@@ -14,7 +14,6 @@
         }
         h1 { margin-bottom: 5px; color: #00d2ff; }
         
-        /* ★新機能：バージョン表記のスタイル */
         .version-badge {
             font-size: 13px;
             color: #888;
@@ -35,7 +34,7 @@
         .btn-master-stop { background-color: #ff1744; color: white; font-size: 16px; padding: 12px 24px; font-weight: bold; }
 
         .tracks-container {
-            max-width: 900px;
+            max-width: 950px;
             margin: 0 auto;
             display: grid;
             grid-template-columns: 1fr;
@@ -55,7 +54,7 @@
         .track-row.playing { border-left-color: #4caf50; background-color: #223a25; }
         
         .track-info { font-weight: bold; font-size: 16px; min-width: 90px; text-align: left; }
-        .btn-group { display: flex; gap: 8px; }
+        .btn-group { display: flex; gap: 8px; align-items: center; }
         
         button {
             padding: 8px 14px;
@@ -72,7 +71,8 @@
         .btn-play { background-color: #4caf50; color: white; }
         .btn-loop { background-color: #2196f3; color: white; }
         .btn-del { background-color: #757575; color: white; }
-        .btn-save { background-color: #9c27b0; color: white; }
+        .btn-save { background-color: #e91e63; color: white; } /* デバイス保存用カラー */
+        .btn-load { background-color: #ff9800; color: white; } /* 読込ボタン */
         
         button:disabled { background-color: #444 !important; color: #777 !important; cursor: not-allowed; transform: none !important; }
         
@@ -83,12 +83,15 @@
             background-color: #444;
             color: #aaa;
         }
+        
+        /* ファイル入力用の見えないインプット */
+        .file-input { display: none; }
     </style>
 </head>
 <body>
 
     <h1>お気楽ビートボックス</h1>
-    <div class="version-badge">Version 1.1.0 (個別保存機能追加版)</div>
+    <div class="version-badge">Version 1.2.0 (ローカル保存・読込完全対応版)</div>
     <p>じぇみにん＆共同開発プロジェクト</p>
 
     <div class="config-panel">
@@ -110,9 +113,6 @@
     <div class="tracks-container" id="tracksContainer"></div>
 
 <script>
-    // ★★★ あなたのGASのWebアプリURL（/exec）をここに貼り付けてください ★★★
-    const GAS_URL = "https://script.google.com/macros/s/AKfycby3UDgPmxaR_ph8yO_vg71D0dnl_BINAVvqFoEH5p2kYi5aljRI6A2SyUhpHlJc5KhR/exec";
-
     const TRACK_COUNT = 8;
     const tracksContainer = document.getElementById('tracksContainer');
     const maxDurationSelect = document.getElementById('maxDuration');
@@ -142,6 +142,8 @@
                 <button class="btn-loop" id="loop-${track.id}" disabled>ループ</button>
                 <button class="btn-del" id="del-${track.id}" disabled>削除</button>
                 <button class="btn-save" id="save-${track.id}" disabled>保存</button>
+                <button class="btn-load" id="loadBtn-${track.id}">読込</button>
+                <input type="file" id="file-${track.id}" class="file-input" accept="audio/*">
             </div>
         `;
         tracksContainer.appendChild(row);
@@ -152,8 +154,22 @@
         const loopBtn = row.querySelector(`#loop-${track.id}`);
         const delBtn = row.querySelector(`#del-${track.id}`);
         const saveBtn = row.querySelector(`#save-${track.id}`);
+        const loadBtn = row.querySelector(`#loadBtn-${track.id}`);
+        const fileInput = row.querySelector(`#file-${track.id}`);
         const statusBadge = row.querySelector(`#status-${track.id}`);
 
+        // 共通のオーディオセットアップ処理
+        const setAudioSource = (blob) => {
+            track.audioBlob = blob;
+            track.audioElement.src = URL.createObjectURL(blob);
+            statusBadge.innerText = "データあり";
+            playBtn.disabled = false;
+            loopBtn.disabled = false;
+            delBtn.disabled = false;
+            saveBtn.disabled = false;
+        };
+
+        // 録音処理
         recBtn.addEventListener('click', async () => {
             track.audioChunks = [];
             try {
@@ -168,18 +184,12 @@
 
                 track.mediaRecorder.onstop = () => {
                     clearTimeout(track.recordingTimeout);
-                    track.audioBlob = new Blob(track.audioChunks, { type: 'audio/wav' });
-                    track.audioElement.src = URL.createObjectURL(track.audioBlob);
+                    const blob = new Blob(track.audioChunks, { type: 'audio/wav' });
+                    setAudioSource(blob);
                     
                     row.classList.remove('recording');
-                    statusBadge.innerText = "データあり";
-                    
                     recBtn.disabled = false;
                     stopBtn.disabled = true;
-                    playBtn.disabled = false;
-                    loopBtn.disabled = false;
-                    delBtn.disabled = false;
-                    saveBtn.disabled = false;
 
                     stream.getTracks().forEach(t => t.stop());
                 };
@@ -202,6 +212,7 @@
             }
         });
 
+        // 停止
         stopBtn.addEventListener('click', () => {
             if (track.mediaRecorder && track.mediaRecorder.state !== 'inactive') {
                 track.mediaRecorder.stop();
@@ -214,6 +225,7 @@
             }
         });
 
+        // 再生・ループ
         playBtn.addEventListener('click', () => {
             track.audioElement.loop = false;
             track.audioElement.currentTime = 0;
@@ -239,6 +251,7 @@
             }
         });
 
+        // 削除
         delBtn.addEventListener('click', () => {
             track.audioElement.pause();
             track.audioElement.src = "";
@@ -253,47 +266,38 @@
             stopBtn.disabled = true;
         });
         
-        // ★新機能：各トラックごとのGoogleドライブ保存処理
-        saveBtn.addEventListener('click', async () => {
+        // ★新機能：デバイスへのファイル保存（ダウンロード）
+        saveBtn.addEventListener('click', () => {
             if (!track.audioBlob) return;
 
-            statusBadge.innerText = "ドライブ保存中...";
-            saveBtn.disabled = true;
+            // 擬似的にリンクを作ってダウンロードを発火させる
+            const url = URL.createObjectURL(track.audioBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `beatbox_track${track.id}.wav`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // 後片付け
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
 
-            const reader = new FileReader();
-            reader.readAsDataURL(track.audioBlob);
-            reader.onloadend = async () => {
-                const base64Audio = reader.result.split(',')[1];
+        // ★新機能：デバイスからのファイル読込
+        loadBtn.addEventListener('click', () => {
+            fileInput.click(); // 隠れているファイル選択画面を呼び出す
+        });
 
-                const payload = {
-                    audio: base64Audio,
-                    // ファイル名に「トラック番号」を含めることで分かりやすく！
-                    fileName: `track${track.id}_${Date.now()}.wav`
-                };
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
 
-                try {
-                    const response = await fetch(GAS_URL, {
-                        method: "POST",
-                        body: JSON.stringify(payload)
-                    });
-                    const result = await response.json();
-                    
-                    if (result.status === "success") {
-                        statusBadge.innerText = "保存完了！";
-                    } else {
-                        statusBadge.innerText = "保存失敗";
-                        alert("エラー: " + result.message);
-                    }
-                } catch (error) {
-                    statusBadge.innerText = "通信エラー";
-                    console.error(error);
-                } finally {
-                    saveBtn.disabled = false;
-                }
-            };
+            // 読み込んだファイルをBlobとしてセット
+            setAudioSource(file);
         });
     });
 
+    // マスターコントロール（変更なし）
     masterPlayBtn.addEventListener('click', () => {
         trackData.forEach(track => {
             if (track.audioBlob) {
@@ -323,7 +327,7 @@
                 
                 const row = document.getElementById(`track-row-${track.id}`);
                 const statusBadge = document.getElementById(`status-${track.id}`);
-                row.classList.remove('playing');
+                row.className = 'track-row';
                 statusBadge.innerText = "データあり";
             }
         });
