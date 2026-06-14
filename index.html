@@ -13,6 +13,14 @@
             text-align: center;
         }
         h1 { margin-bottom: 5px; color: #00d2ff; }
+        
+        /* ★新機能：バージョン表記のスタイル */
+        .version-badge {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 20px;
+        }
+
         .config-panel {
             background-color: #2a2a35;
             padding: 15px;
@@ -20,7 +28,6 @@
             margin-bottom: 20px;
             display: inline-block;
         }
-        /* マスターコントロール用のスタイル */
         .master-controls {
             margin-bottom: 20px;
         }
@@ -81,6 +88,7 @@
 <body>
 
     <h1>お気楽ビートボックス</h1>
+    <div class="version-badge">Version 1.1.0 (個別保存機能追加版)</div>
     <p>じぇみにん＆共同開発プロジェクト</p>
 
     <div class="config-panel">
@@ -102,13 +110,15 @@
     <div class="tracks-container" id="tracksContainer"></div>
 
 <script>
+    // ★★★ あなたのGASのWebアプリURL（/exec）をここに貼り付けてください ★★★
+    const GAS_URL = "https://script.google.com/macros/s/AKfycby3UDgPmxaR_ph8yO_vg71D0dnl_BINAVvqFoEH5p2kYi5aljRI6A2SyUhpHlJc5KhR/exec";
+
     const TRACK_COUNT = 8;
     const tracksContainer = document.getElementById('tracksContainer');
     const maxDurationSelect = document.getElementById('maxDuration');
     const masterPlayBtn = document.getElementById('masterPlayBtn');
     const masterStopBtn = document.getElementById('masterStopBtn');
 
-    // トラックごとのデータを管理する配列
     let trackData = Array.from({ length: TRACK_COUNT }, (_, i) => ({
         id: i + 1,
         mediaRecorder: null,
@@ -118,7 +128,6 @@
         recordingTimeout: null
     }));
 
-    // 画面に8つのトラックを生成
     trackData.forEach(track => {
         const row = document.createElement('div');
         row.className = 'track-row';
@@ -145,21 +154,14 @@
         const saveBtn = row.querySelector(`#save-${track.id}`);
         const statusBadge = row.querySelector(`#status-${track.id}`);
 
-        // 前回の音量バグ修正を適用したマイク録音
         recBtn.addEventListener('click', async () => {
             track.audioChunks = [];
             try {
-                // マイク自動補正を全オフ！
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false
-                    }
+                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
                 });
                 
                 track.mediaRecorder = new MediaRecorder(stream);
-                
                 track.mediaRecorder.ondataavailable = (e) => {
                     if (e.data.size > 0) track.audioChunks.push(e.data);
                 };
@@ -185,7 +187,6 @@
                 track.mediaRecorder.start();
                 row.classList.add('recording');
                 statusBadge.innerText = "録音中...";
-                
                 recBtn.disabled = true;
                 stopBtn.disabled = false;
 
@@ -201,7 +202,6 @@
             }
         });
 
-        // 停止（個別）
         stopBtn.addEventListener('click', () => {
             if (track.mediaRecorder && track.mediaRecorder.state !== 'inactive') {
                 track.mediaRecorder.stop();
@@ -214,7 +214,6 @@
             }
         });
 
-        // ワンタイム再生（個別）
         playBtn.addEventListener('click', () => {
             track.audioElement.loop = false;
             track.audioElement.currentTime = 0;
@@ -224,7 +223,6 @@
             stopBtn.disabled = false;
         });
 
-        // ループ再生（個別）
         loopBtn.addEventListener('click', () => {
             track.audioElement.loop = true;
             track.audioElement.currentTime = 0;
@@ -234,7 +232,6 @@
             stopBtn.disabled = false;
         });
 
-        // オーディオ終了時の個別判定
         track.audioElement.addEventListener('ended', () => {
             if (!track.audioElement.loop) {
                 row.classList.remove('playing');
@@ -242,7 +239,6 @@
             }
         });
 
-        // 削除（個別）
         delBtn.addEventListener('click', () => {
             track.audioElement.pause();
             track.audioElement.src = "";
@@ -257,27 +253,57 @@
             stopBtn.disabled = true;
         });
         
-        saveBtn.addEventListener('click', () => {
-            alert(`トラック ${track.id} のデータを保存します（次以降のステップで実装）`);
+        // ★新機能：各トラックごとのGoogleドライブ保存処理
+        saveBtn.addEventListener('click', async () => {
+            if (!track.audioBlob) return;
+
+            statusBadge.innerText = "ドライブ保存中...";
+            saveBtn.disabled = true;
+
+            const reader = new FileReader();
+            reader.readAsDataURL(track.audioBlob);
+            reader.onloadend = async () => {
+                const base64Audio = reader.result.split(',')[1];
+
+                const payload = {
+                    audio: base64Audio,
+                    // ファイル名に「トラック番号」を含めることで分かりやすく！
+                    fileName: `track${track.id}_${Date.now()}.wav`
+                };
+
+                try {
+                    const response = await fetch(GAS_URL, {
+                        method: "POST",
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    
+                    if (result.status === "success") {
+                        statusBadge.innerText = "保存完了！";
+                    } else {
+                        statusBadge.innerText = "保存失敗";
+                        alert("エラー: " + result.message);
+                    }
+                } catch (error) {
+                    statusBadge.innerText = "通信エラー";
+                    console.error(error);
+                } finally {
+                    saveBtn.disabled = false;
+                }
+            };
         });
     });
 
-    // ==========================================
-    // ★新機能：マスターコントロールの処理
-    // ==========================================
-
-    // 全トラック一斉ループ再生
     masterPlayBtn.addEventListener('click', () => {
         trackData.forEach(track => {
-            // 音声データが存在する場合のみ処理
             if (track.audioBlob) {
                 const row = document.getElementById(`track-row-${track.id}`);
                 const statusBadge = document.getElementById(`status-${track.id}`);
                 const stopBtn = document.getElementById(`stop-${track.id}`);
                 
-                track.audioElement.loop = true;  // 一斉再生は基本ループ
-                track.audioElement.currentTime = 0; // 頭出し
-                track.audioElement.play();       // 再生！
+                track.audioElement.loop = true;
+                track.audioElement.currentTime = 0;
+                track.audioElement.play();
                 
                 row.classList.add('playing');
                 statusBadge.innerText = "ループ再生中";
@@ -286,14 +312,11 @@
         });
     });
 
-    // 全トラック一斉停止
     masterStopBtn.addEventListener('click', () => {
         trackData.forEach(track => {
-            // 録音中なら録音停止
             if (track.mediaRecorder && track.mediaRecorder.state !== 'inactive') {
                 track.mediaRecorder.stop();
             }
-            // 再生中なら再生停止＆頭出し
             if (!track.audioElement.paused) {
                 track.audioElement.pause();
                 track.audioElement.currentTime = 0;
