@@ -29,9 +29,14 @@
         }
         .master-controls {
             margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
         }
         .btn-master-play { background-color: #00e676; color: #111; font-size: 16px; padding: 12px 24px; font-weight: bold; }
         .btn-master-stop { background-color: #ff1744; color: white; font-size: 16px; padding: 12px 24px; font-weight: bold; }
+        .btn-master-mix { background-color: #00b0ff; color: white; font-size: 16px; padding: 12px 24px; font-weight: bold; }
 
         .tracks-container {
             max-width: 950px;
@@ -71,8 +76,8 @@
         .btn-play { background-color: #4caf50; color: white; }
         .btn-loop { background-color: #2196f3; color: white; }
         .btn-del { background-color: #757575; color: white; }
-        .btn-save { background-color: #e91e63; color: white; } /* デバイス保存用カラー */
-        .btn-load { background-color: #ff9800; color: white; } /* 読込ボタン */
+        .btn-save { background-color: #e91e63; color: white; }
+        .btn-load { background-color: #ff9800; color: white; }
         
         button:disabled { background-color: #444 !important; color: #777 !important; cursor: not-allowed; transform: none !important; }
         
@@ -84,14 +89,13 @@
             color: #aaa;
         }
         
-        /* ファイル入力用の見えないインプット */
         .file-input { display: none; }
     </style>
 </head>
 <body>
 
     <h1>お気楽ビートボックス</h1>
-    <div class="version-badge">Version 1.2.0 (ローカル保存・読込完全対応版)</div>
+    <div class="version-badge">Version 1.3.0 (全トラック音声合成・ファイル名指定対応版)</div>
     <p>じぇみにん＆共同開発プロジェクト</p>
 
     <div class="config-panel">
@@ -108,6 +112,7 @@
     <div class="master-controls">
         <button id="masterPlayBtn" class="btn-master-play">▶ 全トラック一斉ループ再生</button>
         <button id="masterStopBtn" class="btn-master-stop">■ 全停止</button>
+        <button id="masterMixBtn" class="btn-master-mix">🎵 全トラックを合成して保存</button>
     </div>
 
     <div class="tracks-container" id="tracksContainer"></div>
@@ -118,6 +123,7 @@
     const maxDurationSelect = document.getElementById('maxDuration');
     const masterPlayBtn = document.getElementById('masterPlayBtn');
     const masterStopBtn = document.getElementById('masterStopBtn');
+    const masterMixBtn = document.getElementById('masterMixBtn');
 
     let trackData = Array.from({ length: TRACK_COUNT }, (_, i) => ({
         id: i + 1,
@@ -158,7 +164,6 @@
         const fileInput = row.querySelector(`#file-${track.id}`);
         const statusBadge = row.querySelector(`#status-${track.id}`);
 
-        // 共通のオーディオセットアップ処理
         const setAudioSource = (blob) => {
             track.audioBlob = blob;
             track.audioElement.src = URL.createObjectURL(blob);
@@ -169,7 +174,6 @@
             saveBtn.disabled = false;
         };
 
-        // 録音処理
         recBtn.addEventListener('click', async () => {
             track.audioChunks = [];
             try {
@@ -212,7 +216,6 @@
             }
         });
 
-        // 停止
         stopBtn.addEventListener('click', () => {
             if (track.mediaRecorder && track.mediaRecorder.state !== 'inactive') {
                 track.mediaRecorder.stop();
@@ -225,7 +228,6 @@
             }
         });
 
-        // 再生・ループ
         playBtn.addEventListener('click', () => {
             track.audioElement.loop = false;
             track.audioElement.currentTime = 0;
@@ -251,7 +253,6 @@
             }
         });
 
-        // 削除
         delBtn.addEventListener('click', () => {
             track.audioElement.pause();
             track.audioElement.src = "";
@@ -266,38 +267,33 @@
             stopBtn.disabled = true;
         });
         
-        // ★新機能：デバイスへのファイル保存（ダウンロード）
         saveBtn.addEventListener('click', () => {
             if (!track.audioBlob) return;
+            const currentName = prompt("個別トラックのファイル名を入力してください", `beatbox_track${track.id}`);
+            if (currentName === null) return; // キャンセル時
+            const finalName = currentName.trim() === "" ? `beatbox_track${track.id}` : currentName;
 
-            // 擬似的にリンクを作ってダウンロードを発火させる
             const url = URL.createObjectURL(track.audioBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `beatbox_track${track.id}.wav`;
+            a.download = `${finalName}.wav`;
             document.body.appendChild(a);
             a.click();
-            
-            // 後片付け
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         });
 
-        // ★新機能：デバイスからのファイル読込
         loadBtn.addEventListener('click', () => {
-            fileInput.click(); // 隠れているファイル選択画面を呼び出す
+            fileInput.click();
         });
 
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
-
-            // 読み込んだファイルをBlobとしてセット
             setAudioSource(file);
         });
     });
 
-    // マスターコントロール（変更なし）
     masterPlayBtn.addEventListener('click', () => {
         trackData.forEach(track => {
             if (track.audioBlob) {
@@ -332,6 +328,161 @@
             }
         });
     });
+
+    // ==========================================
+    // ★新機能：全トラック音声合成（ミックス）ロジック
+    // ==========================================
+    masterMixBtn.addEventListener('click', async () => {
+        // 音声があるトラックだけを抽出
+        const activeTracks = trackData.filter(t => t.audioBlob !== null);
+        
+        if (activeTracks.length === 0) {
+            alert("合成する音声データがありません。先に録音するか読み込んでください。");
+            return;
+        }
+
+        // 1. 保存ファイル名の指定
+        const defaultFileName = "beatbox_mixed_session";
+        const userInput = prompt("合成後のファイル名を入力してください（拡張子不要）:", defaultFileName);
+        if (userInput === null) return; // キャンセルされた場合
+        const fileName = userInput.trim() === "" ? defaultFileName : userInput;
+
+        masterMixBtn.disabled = true;
+        masterMixBtn.innerText = "合成中...";
+
+        try {
+            // Web Audio APIのコンテキスト作成
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            const audioCtx = new AudioContext();
+
+            // すべてのBlobデータをAudioBufferに変換するプロミス配列を作成
+            const decodePromises = activeTracks.map(async (track) => {
+                const arrayBuffer = await track.audioBlob.arrayBuffer();
+                return await audioCtx.decodeAudioData(arrayBuffer);
+            });
+
+            // 全データのデコード完了を待つ
+            const audioBuffers = await Promise.all(decodePromises);
+
+            // 一番長いトラックの長さを基準にする
+            const maxDuration = Math.max(...audioBuffers.map(buf => buf.duration));
+            const sampleRate = audioCtx.sampleRate;
+            const totalSamples = maxDuration * sampleRate;
+
+            // 合成用（出力用）のオフラインバッファを作成 (モノラル: 1ch)
+            const offlineCtx = new OfflineAudioContext(1, totalSamples, sampleRate);
+
+            // 各オーディオバッファを重ね合わせるソースを配置
+            audioBuffers.forEach(buffer => {
+                const source = offlineCtx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(offlineCtx.destination);
+                source.start(0);
+            });
+
+            // レンダリング（高速合成）開始
+            const renderedBuffer = await offlineCtx.startRendering();
+
+            // レンダリングされたデータをWAVEフォーマットのBlobに変換
+            const wavBlob = bufferToWav(renderedBuffer);
+
+            // ダウンロード発火
+            const url = URL.createObjectURL(wavBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${fileName}.wav`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            alert("合成完了！ファイルが保存されました。");
+
+        } catch (error) {
+            console.error(error);
+            alert("合成中にエラーが発生しました: " + error.message);
+        } finally {
+            masterMixBtn.disabled = false;
+            masterMixBtn.innerText = "🎵 全トラックを合成して保存";
+        }
+    });
+
+    // AudioBufferをWAVEフォーマットに変換するヘルパー関数
+    function bufferToWav(buffer) {
+        const numOfChan = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const format = 1; // 1 = 未圧縮PCM
+        const bitDepth = 16;
+        
+        let result;
+        if (numOfChan === 2) {
+            result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+        } else {
+            result = buffer.getChannelData(0); // モノラル
+        }
+        
+        const bufferLength = result.length * 2;
+        const ab = new ArrayBuffer(44 + bufferLength);
+        const view = new DataView(ab);
+        
+        /* RIFF identifier */
+        writeString(view, 0, 'RIFF');
+        /* file length */
+        view.setUint32(4, 36 + bufferLength, true);
+        /* RIFF type */
+        writeString(view, 8, 'WAVE');
+        /* format chunk identifier */
+        writeString(view, 12, 'fmt ');
+        /* format chunk length */
+        view.setUint32(16, 16, true);
+        /* sample format (raw) */
+        view.setUint16(20, format, true);
+        /* channel count */
+        view.setUint16(22, numOfChan, true);
+        /* sample rate */
+        view.setUint32(24, sampleRate, true);
+        /* byte rate (sample rate * block align) */
+        view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
+        /* block align (channel count * bytes per sample) */
+        view.setUint16(32, numOfChan * (bitDepth / 8), true);
+        /* bits per sample */
+        view.setUint16(34, bitDepth, true);
+        /* data chunk identifier */
+        writeString(view, 36, 'data');
+        /* data chunk length */
+        view.setUint32(40, bufferLength, true);
+        
+        // 音声データの書き込み
+        floatTo16BitPCM(view, 44, result);
+        
+        return new Blob([view], { type: 'audio/wav' });
+    }
+
+    function interleave(inputL, inputR) {
+        const length = inputL.length + inputR.length;
+        const result = new Float32Array(length);
+        let index = 0;
+        let inputIndex = 0;
+        while (index < length) {
+            result[index++] = inputL[inputIndex];
+            result[index++] = inputR[inputIndex];
+            inputIndex++;
+        }
+        return result;
+    }
+
+    function floatTo16BitPCM(output, offset, input) {
+        for (let i = 0; i < input.length; i++, offset += 2) {
+            let s = Math.max(-1, Math.min(1, input[i]));
+            output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        }
+    }
+
+    function writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+        }
+    }
 </script>
 </body>
 </html>
