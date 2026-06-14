@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>録音・再生テストアプリ</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 40px;
+            text-align: center;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: inline-block;
+        }
+        button {
+            font-size: 16px;
+            padding: 10px 20px;
+            margin: 10px;
+            cursor: pointer;
+            border-radius: 5px;
+            border: none;
+        }
+        #recordBtn { background-color: #ff4d4d; color: white; }
+        #stopBtn { background-color: #cccccc; color: #333333; }
+        #recordBtn:disabled, #stopBtn:disabled { background-color: #e0e0e0; color: #999999; cursor: not-allowed; }
+        .status { margin: 20px 0; font-weight: bold; color: #333; }
+        audio { margin-top: 20px; display: block; width: 100%; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>録音・再生テスト</h2>
+    
+    <div>
+        <button id="recordBtn">録音開始</button>
+        <button id="stopBtn" disabled>停止</button>
+    </div>
+
+    <div class="status" id="statusText">マイクの使用を許可して「録音開始」を押してください</div>
+
+    <div>
+        <h3>再生コントロール</h3>
+        <audio id="audioPlayback" controls></audio>
+    </div>
+</div>
+
+<script>
+    let mediaRecorder;
+    let audioChunks = [];
+
+    const recordBtn = document.getElementById('recordBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusText = document.getElementById('statusText');
+    const audioPlayback = document.getElementById('audioPlayback');
+
+    // 録音開始ボタンのイベント
+    recordBtn.addEventListener('click', async () => {
+        audioChunks = []; // 録音データをクリア
+        
+        try {
+            // マイクへのアクセスをリクエスト
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            // MediaRecorderの初期化
+            mediaRecorder = new MediaRecorder(stream);
+            
+            // データが利用可能になった時の処理
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+
+            // 録音停止時の処理
+            mediaRecorder.onstop = () => {
+                // 保存されたチャンク（塊）から、1つのオーディオBlobを作成
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' }); // ※ブラウザによってはwebm等になります
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                // audio要素にソースを設定して再生可能にする
+                audioPlayback.src = audioUrl;
+                statusText.innerText = "録音完了！再生して確認できます。";
+                
+                // マイクストップ（使用中マークを消す）
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            // 録音スタート
+            mediaRecorder.start();
+            statusText.innerText = "録音中...";
+            recordBtn.disabled = true;
+            stopBtn.disabled = false;
+
+        } catch (err) {
+            console.error('マイクのアクセスに失敗しました:', err);
+            statusText.innerText = "エラー: マイクのアクセスが拒否されたか、対応していません。";
+        }
+    });
+
+    // 停止ボタンのイベント
+    stopBtn.addEventListener('click', () => {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+            recordBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+    });
+</script>
+
+</body>
+</html>
