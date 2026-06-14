@@ -51,66 +51,101 @@
     </div>
 </div>
 
+<button id="uploadBtn" disabled style="background-color: #4caf50; color: white;">Googleドライブに保存</button>
+
 <script>
     let mediaRecorder;
     let audioChunks = [];
+    let audioBlob = null; // 録音データを保持する変数
+
+    // ★ここに先ほどコピーしたGASのWebアプリURL（/exec）を貼り付けてください
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbw2bgGF4ojQP9M0jxnOe289gW32T-db-nrbof4IjbIwiu84rGA9F6FVMJJ6WrhzGogc/exec";
 
     const recordBtn = document.getElementById('recordBtn');
     const stopBtn = document.getElementById('stopBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
     const statusText = document.getElementById('statusText');
     const audioPlayback = document.getElementById('audioPlayback');
 
-    // 録音開始ボタンのイベント
     recordBtn.addEventListener('click', async () => {
-        audioChunks = []; // 録音データをクリア
+        audioChunks = [];
+        uploadBtn.disabled = true;
         
         try {
-            // マイクへのアクセスをリクエスト
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            // MediaRecorderの初期化
             mediaRecorder = new MediaRecorder(stream);
             
-            // データが利用可能になった時の処理
             mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                }
+                if (event.data.size > 0) audioChunks.push(event.data);
             };
 
-            // 録音停止時の処理
             mediaRecorder.onstop = () => {
-                // 保存されたチャンク（塊）から、1つのオーディオBlobを作成
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' }); // ※ブラウザによってはwebm等になります
+                audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
                 const audioUrl = URL.createObjectURL(audioBlob);
-                
-                // audio要素にソースを設定して再生可能にする
                 audioPlayback.src = audioUrl;
-                statusText.innerText = "録音完了！再生して確認できます。";
+                statusText.innerText = "録音完了！ドライブに保存できます。";
                 
-                // マイクストップ（使用中マークを消す）
+                uploadBtn.disabled = false; // 保存ボタンを押せるようにする
                 stream.getTracks().forEach(track => track.stop());
             };
 
-            // 録音スタート
             mediaRecorder.start();
             statusText.innerText = "録音中...";
             recordBtn.disabled = true;
             stopBtn.disabled = false;
-
         } catch (err) {
-            console.error('マイクのアクセスに失敗しました:', err);
-            statusText.innerText = "エラー: マイクのアクセスが拒否されたか、対応していません。";
+            statusText.innerText = "マイクエラー: " + err;
         }
     });
 
-    // 停止ボタンのイベント
     stopBtn.addEventListener('click', () => {
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop();
             recordBtn.disabled = false;
             stopBtn.disabled = true;
         }
+    });
+
+    // ★新しく追加：GAS経由でGoogleドライブにアップロードする処理
+    uploadBtn.addEventListener('click', async () => {
+        if (!audioBlob) return;
+
+        statusText.innerText = "Googleドライブにアップロード中...";
+        uploadBtn.disabled = true;
+
+        // 1. 音声BlobデータをBase64（テキスト）に変換する
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+            const base64Audio = reader.result.split(',')[1]; // プレフィックスを除去
+
+            // 2. GASに送るデータを作成
+            const payload = {
+                audio: base64Audio,
+                fileName: "audio_" + Date.now() + ".wav"
+            };
+
+            try {
+                // 3. fetchでGASへPOST送信
+                const response = await fetch(GAS_URL, {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === "success") {
+                    statusText.innerText = "保存成功！ドライブを確認してみてね＾＾";
+                } else {
+                    statusText.innerText = "保存失敗: " + result.message;
+                    uploadBtn.disabled = false;
+                }
+            } catch (error) {
+                statusText.innerText = "通信エラーが発生しました。";
+                console.error(error);
+                uploadBtn.disabled = false;
+            }
+        };
     });
 </script>
 
