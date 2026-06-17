@@ -95,7 +95,7 @@
 <body>
 
     <h1>お気楽ビートボックス</h1>
-    <div class="version-badge">Version 1.3.0 (全トラック音声合成・ファイル名指定対応版)</div>
+    <div class="version-badge">Version 1.4.0 (UIコンパクト化)</div>
     <p>じぇみにん＆共同開発プロジェクト</p>
 
     <div class="config-panel">
@@ -219,7 +219,7 @@
                 };
 
                 track.mediaRecorder.start();
-                row.classList.add('recording');
+                row1.classList.add('recording');
                 statusBadge.innerText = "録音中...";
                 recBtn.disabled = true;
                 stopBtn.disabled = false;
@@ -243,7 +243,7 @@
             if (!track.audioElement.paused) {
                 track.audioElement.pause();
                 track.audioElement.currentTime = 0;
-                row.classList.remove('playing');
+                row1.classList.remove('playing');
                 statusBadge.innerText = "データあり";
             }
         });
@@ -252,7 +252,7 @@
             track.audioElement.loop = false;
             track.audioElement.currentTime = 0;
             track.audioElement.play();
-            row.classList.add('playing');
+            row1.classList.add('playing');
             statusBadge.innerText = "再生中";
             stopBtn.disabled = false;
         });
@@ -261,14 +261,14 @@
             track.audioElement.loop = true;
             track.audioElement.currentTime = 0;
             track.audioElement.play();
-            row.classList.add('playing');
+            row1.classList.add('playing');
             statusBadge.innerText = "ループ再生中";
             stopBtn.disabled = false;
         });
 
         track.audioElement.addEventListener('ended', () => {
             if (!track.audioElement.loop) {
-                row.classList.remove('playing');
+                row1.classList.remove('playing');
                 statusBadge.innerText = "データあり";
             }
         });
@@ -278,7 +278,7 @@
             track.audioElement.src = "";
             track.audioBlob = null;
             track.audioChunks = [];
-            row.className = 'track-row';
+            row1.className = 'track-row';
             statusBadge.innerText = "空";
             playBtn.disabled = true;
             loopBtn.disabled = true;
