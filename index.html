@@ -109,14 +109,23 @@
             <option value="60">60秒</option>
             <option value="90">90秒</option>
             <option value="120">120秒</option>
+            <option value="180">180秒</option>
+            <option value="240">240秒</option>
+            <option value="300">300秒</option>
+            <option value="360">360秒</option>
+            <option value="420">420秒</option>
+            <option value="480">480秒</option>
+            <option value="540">540秒</option>
+            <option value="600">600秒</option>
+            <option value="1200">1200秒</option>
         </select>
         <span style="margin-left: 15px; color: #aaa; font-size: 14px;">※停止を押すか、時間を過ぎると自動で録音終了します</span>
     </div>
 
     <div class="master-controls">
-        <button id="masterPlayBtn" class="btn-master-play">▶ 全トラック一斉ループ再生</button>
+        <button id="masterPlayBtn" class="btn-master-play">▶ 一斉ループ再生</button>
         <button id="masterStopBtn" class="btn-master-stop">■ 全停止</button>
-        <button id="masterMixBtn" class="btn-master-mix">🎵 全トラックを合成して保存</button>
+        <button id="masterMixBtn" class="btn-master-mix">🎵 合成して保存</button>
     </div>
 
     <div class="tracks-container" id="tracksContainer"></div>
@@ -139,12 +148,19 @@
     }));
 
     trackData.forEach(track => {
-        const row = document.createElement('div');
-        row.className = 'track-row';
-        row.id = `track-row-${track.id}`;
-        row.innerHTML = `
+        const row1 = document.createElement('div');
+        row1.className = 'track-row';
+        row1.id = `track-row-${track.id}`;
+        row1.innerHTML = `
             <div class="track-info">トラック ${track.id}</div>
             <div class="status-badge" id="status-${track.id}">空</div>
+        `;
+        tracksContainer.appendChild(row1);
+
+        const row2 = document.createElement('div');
+        row2.className = 'track-row';
+        row2.id = `track-row-${track.id}`;
+        row2.innerHTML = `
             <div class="btn-group">
                 <button class="btn-rec" id="rec-${track.id}">録音</button>
                 <button class="btn-stop" id="stop-${track.id}" disabled>停止</button>
@@ -156,17 +172,17 @@
                 <input type="file" id="file-${track.id}" class="file-input" accept="audio/*">
             </div>
         `;
-        tracksContainer.appendChild(row);
+        tracksContainer.appendChild(row2);
 
-        const recBtn = row.querySelector(`#rec-${track.id}`);
-        const stopBtn = row.querySelector(`#stop-${track.id}`);
-        const playBtn = row.querySelector(`#play-${track.id}`);
-        const loopBtn = row.querySelector(`#loop-${track.id}`);
-        const delBtn = row.querySelector(`#del-${track.id}`);
-        const saveBtn = row.querySelector(`#save-${track.id}`);
-        const loadBtn = row.querySelector(`#loadBtn-${track.id}`);
-        const fileInput = row.querySelector(`#file-${track.id}`);
-        const statusBadge = row.querySelector(`#status-${track.id}`);
+        const recBtn = row2.querySelector(`#rec-${track.id}`);
+        const stopBtn = row2.querySelector(`#stop-${track.id}`);
+        const playBtn = row2.querySelector(`#play-${track.id}`);
+        const loopBtn = row2.querySelector(`#loop-${track.id}`);
+        const delBtn = row2.querySelector(`#del-${track.id}`);
+        const saveBtn = row2.querySelector(`#save-${track.id}`);
+        const loadBtn = row2.querySelector(`#loadBtn-${track.id}`);
+        const fileInput = row2.querySelector(`#file-${track.id}`);
+        const statusBadge = row1.querySelector(`#status-${track.id}`);
 
         const setAudioSource = (blob) => {
             track.audioBlob = blob;
