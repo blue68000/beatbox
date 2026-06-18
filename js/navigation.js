@@ -4,6 +4,7 @@ const navigation = `
             <li><a href="/beatbox/index.html">ホーム</a></li>
             <li><a href="/beatbox/doc/beatbox.html">ビートボックス</a></li>
             <li><a href="/beatbox/doc/perfectpitch.html">音程チェック</a></li>
+            <li><a href="/beatbox/doc/sound2vibe.html">Sound To Vibe</a></li>
         </ul>
     </nav>
 `;
