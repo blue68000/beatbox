@@ -3,19 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>音域＆音階翻訳シミュレーター</title>
+    <title>音階＆音域アナライザー - Time Machine</title>
     <style>
-        body { font-family: sans-serif; background-color: #f0f2f5; padding: 20px; display: flex; justify-content: center; }
-        .container { background-color: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 440px; text-align: center; }
-        h1 { font-size: 1.2rem; margin-bottom: 20px; color: #333; }
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 6px; font-size: 1.1rem; font-weight: bold; cursor: pointer; background-color: #007bff; color: white; margin-bottom: 25px; }
-        .btn.active { background-color: #dc3545; }
+        body { font-family: sans-serif; background-color: #f0f2f5; padding: 15px; display: flex; justify-content: center; }
+        .container { background-color: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 440px; text-align: center; }
+        h1 { font-size: 1.2rem; margin-top: 0; margin-bottom: 15px; color: #333; }
         
-        .display-box { background-color: #f8f9fa; border: 2px solid #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
+        .btn-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        .btn { flex: 1; padding: 14px; border: none; border-radius: 6px; font-size: 1rem; font-weight: bold; cursor: pointer; color: white; }
+        #startBtn { background-color: #007bff; }
+        #startBtn.active { background-color: #dc3545; }
+        #playBtn { background-color: #28a745; }
+        #playBtn:disabled { background-color: #6c757d; cursor: not-allowed; opacity: 0.5; }
+        #playBtn.playing { background-color: #ffc107; color: #212529; }
+        
+        .display-box { background-color: #f8f9fa; border: 2px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
         .note-text { font-size: 3.5rem; font-weight: bold; color: #28a745; margin: 0; min-height: 5rem; line-height: 5rem; }
-        .hz-text { font-family: monospace; font-size: 1.2rem; color: #6c757d; margin-top: 5px; }
+        .hz-text { font-family: monospace; font-size: 1.1rem; color: #6c757d; margin-top: 5px; }
         
-        /* 音域レポート用スタイル */
+        canvas { width: 100%; height: 120px; background-color: #111; border-radius: 6px; margin-bottom: 15px; display: block; }
+
         .range-box { background-color: #e9ecef; border-radius: 8px; padding: 15px; text-align: left; font-size: 0.9rem; }
         .range-box h3 { margin: 0 0 10px 0; font-size: 1rem; color: #495057; border-bottom: 1px solid #ccc; padding-bottom: 3px; }
         .range-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-family: monospace; }
@@ -27,32 +34,49 @@
 <div class="container">
     <h1>音階＆音域アナライザー</h1>
     
-    <button id="startBtn" class="btn">計測スタート</button>
+    <div class="btn-group">
+        <button id="startBtn" class="btn">🎤 測定スタート</button>
+        <button id="playBtn" class="btn" disabled>▶️ Beepで再現再生</button>
+    </div>
 
     <div class="display-box">
         <div id="noteDisplay" class="note-text">--</div>
         <div id="hzDisplay" class="hz-text">0 Hz</div>
     </div>
     
+    <canvas id="historyCanvas" width="400" height="120"></canvas>
+    
     <div class="range-box">
-        <h3>📊 今回の計測結果（音域）</h3>
+        <h3>📊 確定音域（0.2秒以上安定した音）</h3>
         <div class="range-row"><span>最低音:</span> <span id="minNoteDisplay" class="range-val">--</span></div>
         <div class="range-row"><span>最高音:</span> <span id="maxNoteDisplay" class="range-val">--</span></div>
-        <div class="range-row"><span>音域の幅:</span> <span id="rangeWidthDisplay" class="range-val" style="color:#ce8002;">--</span></div>
+        <div class="range-row"><span>真の音域幅:</span> <span id="rangeWidthDisplay" class="range-val" style="color:#ce8002;">--</span></div>
     </div>
 </div>
 
 <script>
     let audioCtx = null; let analyser = null; let stream = null;
-    let isListening = false; let animationId = null;
+    let isListening = false; let isPlayingBeep = false;
+    let animationId = null; let playbackTimer = null;
 
-    // 音域計測用の変数
-    let minHz = Infinity;
-    let maxHz = -Infinity;
-    let minNoteStr = "--";
-    let maxNoteStr = "--";
+    // シンセパーツ
+    let synthOsc = null; let synthGain = null;
+
+    // Canvas・データスタック関連
+    const canvas = document.getElementById('historyCanvas');
+    const ctx = canvas.getContext('2d');
+    let historyData = [];
+    const MAX_HISTORY = 1200; // 約20秒分
+    let playbackIndex = 0;   // 再生中のタイムライン位置
+
+    let lastNoteValue = -1; let noteDurationCount = 0; 
+    const STABLE_THRESHOLD_COUNT = 12; 
+
+    let trueMinNote = Infinity; let trueMaxNote = -Infinity;
+    let trueMinHz = 0; let trueMaxHz = 0;
 
     const startBtn = document.getElementById('startBtn');
+    const playBtn = document.getElementById('playBtn');
     const noteDisplay = document.getElementById('noteDisplay');
     const hzDisplay = document.getElementById('hzDisplay');
     const minNoteDisplay = document.getElementById('minNoteDisplay');
@@ -65,27 +89,26 @@
         const noteNum = 12 * (Math.log2(frequency / 440));
         const roundedNote = Math.round(noteNum) + 69;
         const noteIndex = (roundedNote % 12 + 12) % 12;
-        const octave = Math.floor(roundedNote / 12) - 1; // オクターブ（高さの階層。4が真ん中）
-        
-        return {
-            str: `${NOTE_NAMES[noteIndex]} (M${octave})`, // 例: ド (M4) 
-            semiToneValue: roundedNote // 鍵盤の絶対位置（幅の計算用）
-        };
+        const octave = Math.floor(roundedNote / 12) - 1; 
+        return { name: NOTE_NAMES[noteIndex], octave: octave, fullStr: `${NOTE_NAMES[noteIndex]}${octave}`, semiToneValue: roundedNote };
     }
 
+    function noteToHz(noteNumber) { return 440 * Math.pow(2, (noteNumber - 69) / 12); }
+
+    // ─── ① 🎤 測定モードの制御 ───
     async function toggleMic() {
+        if (isPlayingBeep) stopBeepPlayback(); // 再生中なら止める
+
         if (!isListening) {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            } catch (err) {
-                alert('マイクのアクセスを許可してください');
-                return;
-            }
+            } catch (err) { alert('マイクを許可してください'); return; }
 
-            // 音域データの初期化
-            minHz = Infinity; maxHz = -Infinity;
-            minNoteStr = "--"; maxNoteStr = "--";
+            // データ初期化
+            trueMinNote = Infinity; trueMaxNote = -Infinity;
+            historyData = []; noteDurationCount = 0; lastNoteValue = -1;
             minNoteDisplay.textContent = "--"; maxNoteDisplay.textContent = "--"; rangeWidthDisplay.textContent = "--";
+            playBtn.disabled = true;
 
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             analyser = audioCtx.createAnalyser();
@@ -95,23 +118,29 @@
             source.connect(analyser);
 
             isListening = true;
-            startBtn.textContent = '計測ストップ（結果確定）';
+            startBtn.textContent = '⏹️ 測定ストップ';
             startBtn.classList.add('active');
-
             update();
         } else {
+            // 測定停止
             if (animationId) cancelAnimationFrame(animationId);
             if (stream) stream.getTracks().forEach(track => track.stop());
             if (audioCtx) audioCtx.close();
-            
+
             isListening = false;
-            startBtn.textContent = '計測スタート';
+            startBtn.textContent = '🎤 測定スタート';
             startBtn.classList.remove('active');
-            noteDisplay.textContent = '--';
-            hzDisplay.textContent = '0 Hz';
+            noteDisplay.textContent = "--";
+            hzDisplay.textContent = "0 Hz";
+
+            // データが溜まっていれば再生ボタンを解禁
+            if (historyData.length > 0) {
+                playBtn.disabled = false;
+            }
         }
     }
 
+    // リアルタイム集音ループ
     function update() {
         if (!isListening) return;
 
@@ -126,41 +155,151 @@
 
         const sampleRate = audioCtx.sampleRate;
         const frequency = maxIndex * sampleRate / analyser.fftSize;
+        let currentPitchData = null;
 
-        // ちょっと厳しめに判定（雑音を拾いにくくするため判定音量を-50dB以上に）
-        if (maxValue > -50 && frequency > 60 && frequency < 4000) {
+        if (maxValue > -48 && frequency > 60 && frequency < 4000) {
             const currentHz = Math.round(frequency);
             const noteInfo = hzToNoteInfo(frequency);
             
             hzDisplay.textContent = `${currentHz} Hz`;
-            noteDisplay.textContent = noteInfo.str.split(' ')[0]; // 画面中央には「ド」だけ表示
+            noteDisplay.textContent = noteInfo.fullStr;
 
-            // ★ 最低音・最高音の更新ロジック
-            if (frequency < minHz) {
-                minHz = frequency;
-                minNoteStr = `${noteInfo.str} [${currentHz}Hz]`;
-                minNoteDisplay.textContent = minNoteStr;
-            }
-            if (frequency > maxHz) {
-                maxHz = frequency;
-                maxNoteStr = `${noteInfo.str} [${currentHz}Hz]`;
-                maxNoteDisplay.textContent = maxNoteStr;
-            }
+            currentPitchData = { hz: frequency, noteStr: noteInfo.fullStr, semiTone: noteInfo.semiToneValue };
 
-            // ★ 音域の幅を計算（最高音と最低音の半音の差からオクターブを割り出す）
-            if (minHz !== Infinity && maxHz !== -Infinity) {
-                const minInfo = hzToNoteInfo(minHz);
-                const maxInfo = hzToNoteInfo(maxHz);
-                const diffSemitones = maxInfo.semiToneValue - minInfo.semiToneValue;
-                const octaves = (diffSemitones / 12).toFixed(1);
-                rangeWidthDisplay.textContent = `${diffSemitones} 半音 (約 ${octaves} オクターブ)`;
-            }
+            // 0.2秒の安定判定
+            if (noteInfo.semiToneValue === lastNoteValue) {
+                noteDurationCount++;
+                if (noteDurationCount >= STABLE_THRESHOLD_COUNT) {
+                    if (noteInfo.semiToneValue < trueMinNote) {
+                        trueMinNote = noteInfo.semiToneValue;
+                        trueMinHz = currentHz;
+                        minNoteDisplay.textContent = `${noteInfo.fullStr} [${trueMinHz}Hz]`;
+                    }
+                    if (noteInfo.semiToneValue > trueMaxNote) {
+                        trueMaxNote = noteInfo.semiToneValue;
+                        trueMaxHz = currentHz;
+                        maxNoteDisplay.textContent = `${noteInfo.fullStr} [${trueMaxHz}Hz]`;
+                    }
+                    if (trueMinNote !== Infinity && trueMaxNote !== -Infinity) {
+                        const diff = trueMaxNote - trueMinNote;
+                        rangeWidthDisplay.textContent = `${diff} 半音 (約 ${(diff / 12).toFixed(1)} オクターブ)`;
+                    }
+                }
+            } else { lastNoteValue = noteInfo.semiToneValue; noteDurationCount = 0; }
+        } else {
+            noteDisplay.textContent = "--"; noteDurationCount = 0;
         }
 
+        // 20秒のタイムラインにデータを蓄積
+        historyData.push(currentPitchData);
+        if (historyData.length > MAX_HISTORY) historyData.shift();
+
+        drawGraph(-1); // 通常描画
         animationId = requestAnimationFrame(update);
     }
 
+    // ─── ② 🎹 タイムマシン再生モードの制御 ───
+    function togglePlayBeep() {
+        if (isListening) return; // 測定中は再生不可
+
+        if (!isPlayingBeep) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            synthOsc = audioCtx.createOscillator();
+            synthGain = audioCtx.createGain();
+            synthOsc.type = 'sine';
+            synthGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            synthOsc.connect(synthGain);
+            synthGain.connect(audioCtx.destination);
+            synthOsc.start();
+
+            isPlayingBeep = true;
+            playBtn.textContent = '⏹️ 再生ストップ';
+            playBtn.classList.add('playing');
+            playbackIndex = 0;
+
+            playbackLoop();
+        } else {
+            stopBeepPlayback();
+        }
+    }
+
+    function stopBeepPlayback() {
+        isPlayingBeep = false;
+        playBtn.textContent = '▶️ Beepで再現再生';
+        playBtn.classList.remove('playing');
+        noteDisplay.textContent = "--";
+        hzDisplay.textContent = "0 Hz";
+        
+        if (synthOsc) { synthOsc.stop(); synthOsc.disconnect(); synthOsc = null; }
+        if (synthGain) { synthGain.disconnect(); synthGain = null; }
+        if (audioCtx) { audioCtx.close(); audioCtx = null; }
+        
+        drawGraph(-1); // 赤線を消すためにリドロー
+    }
+
+    // スタックしたデータを1フレーム（約16ms）ずつ再現するループ
+    function playbackLoop() {
+        if (!isPlayingBeep) return;
+
+        if (playbackIndex >= historyData.length) {
+            stopBeepPlayback(); // 最後まで再生したら自動停止
+            return;
+        }
+
+        const data = historyData[playbackIndex];
+
+        if (data) {
+            const targetHz = noteToHz(data.semiTone);
+            synthOsc.frequency.setValueAtTime(targetHz, audioCtx.currentTime);
+            synthGain.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.01);
+            
+            hzDisplay.textContent = `${Math.round(data.hz)} Hz`;
+            noteDisplay.textContent = data.noteStr;
+        } else {
+            synthGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.02);
+            noteDisplay.textContent = "--";
+        }
+
+        // 再生位置の赤線を描画するためにインデックスを渡す
+        drawGraph(playbackIndex);
+
+        playbackIndex++;
+        // 60fps (1000ms / 60 = 16.6ms) に同期して次のフレームへ
+        setTimeout(playbackLoop, 16.6);
+    }
+
+    // ─── ③ 🎨 共通グラフ描画（再生時は赤いタイムライン線が入る） ───
+    function drawGraph(currentPlayIdx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (historyData.length === 0) return;
+
+        ctx.strokeStyle = '#28a745'; ctx.lineWidth = 2; ctx.beginPath();
+        for (let i = 0; i < historyData.length; i++) {
+            const data = historyData[i]; if (!data) continue;
+            const x = (i / MAX_HISTORY) * canvas.width;
+            const minLog = Math.log2(60); const maxLog = Math.log2(2000); const currentLog = Math.log2(data.hz);
+            const y = canvas.height - ((currentLog - minLog) / (maxLog - minLog)) * canvas.height;
+            if (i === 0 || !historyData[i-1]) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // ガイドライン
+        const c4Log = Math.log2(261.63);
+        const c4Y = canvas.height - ((c4Log - Math.log2(60)) / (Math.log2(2000) - Math.log2(60))) * canvas.height;
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, c4Y); ctx.lineTo(canvas.width, c4Y); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '9px monospace'; ctx.fillText('C4(約261Hz)', 5, c4Y - 2);
+
+        // ★★★ 再生中の「赤い縦のタイムライン線」を描画 ★★★
+        if (currentPlayIdx >= 0) {
+            const playX = (currentPlayIdx / MAX_HISTORY) * canvas.width;
+            ctx.strokeStyle = '#dc3545';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(playX, 0); ctx.lineTo(playX, canvas.height); ctx.stroke();
+        }
+    }
+
     startBtn.addEventListener('click', toggleMic);
+    playBtn.addEventListener('click', togglePlayBeep);
 </script>
 
 </body>
