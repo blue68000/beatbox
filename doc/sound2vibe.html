@@ -27,6 +27,8 @@
         .info-container { width: 100%; max-width: 400px; background: #1e1e1e; padding: 15px; border-radius: 10px; box-sizing: border-box; }
         .status-val { font-size: 1.1rem; margin: 5px 0; color: #b0bec5; }
         .status-val span { font-weight: bold; color: #fff; }
+        .dbValue { color: #00e676; }
+        .hzValue { color: #2196f3; }
         canvas { width: 100%; height: 150px; background-color: #000000; border-radius: 5px; margin-top: 10px; }
         #message-box {
             width: 100%; max-width: 400px; min-height: 60px; margin-top: 20px;
@@ -42,8 +44,8 @@
     <button id="actionBtn" class="control-btn start">解析を開始する</button>
 
     <div class="info-container">
-        <div class="status-val">現在の音量: <span id="dbValue">0</span> dB</div>
-        <div class="status-val">主な周波数: <span id="hzValue">0</span> Hz</div>
+        <div class="status-val">現在の音量: <span class="dbValue" id="dbValue">0</span> dB</div>
+        <div class="status-val">主な周波数: <span class="hzValue" id="hzValue">0</span> Hz</div>
         <canvas id="graphCanvas"></canvas>
     </div>
 
@@ -69,7 +71,7 @@
         const historyData = []; // { volume: 0, frequency: 0 }
 
         // 誤作動防止用：過去2秒間（約120個分）のデータバッファ
-        const bufferSize = 120;
+        const bufferSize = 60;
         const volumeBuffer = [];
         const freqBuffer = [];
 
@@ -81,7 +83,18 @@
             if (!isRunning) {
                 // 開始処理
                 try {
-                    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    // 変更前
+                    // stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    
+                    // 変更後（ノイズキャンセリングや自動音量調整をすべて強制OFF）
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: false,  // エコーキャンセラーOFF
+                            noiseSuppression: false,  // ノイズサプレッションOFF
+                            autoGainControl: false   // 自動音量調整（ゲイン）OFF
+                        },
+                        video: false
+                    });                    
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     const source = audioContext.createMediaStreamSource(stream);
                     
