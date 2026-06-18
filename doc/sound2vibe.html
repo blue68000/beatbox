@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sound To Vibe - 触覚アシスト</title>
+    <style>
+        /* CSS: スマホで見やすいシンプル＆ダークデザイン */
+        body {
+            font-family: sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { font-size: 1.5rem; margin-bottom: 10px; color: #00e676; }
+        .control-btn {
+            width: 80%; max-width: 300px; padding: 15px; font-size: 1.2rem;
+            font-weight: bold; border: none; border-radius: 30px; cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: 0.2s; margin-bottom: 20px;
+        }
+        .start { background-color: #00e676; color: #121212; }
+        .stop { background-color: #ff1744; color: #ffffff; }
+        .info-container { width: 100%; max-width: 400px; background: #1e1e1e; padding: 15px; border-radius: 10px; box-sizing: border-box; }
+        .status-val { font-size: 1.1rem; margin: 5px 0; color: #b0bec5; }
+        .status-val span { font-weight: bold; color: #fff; }
+        canvas { width: 100%; height: 150px; background-color: #000000; border-radius: 5px; margin-top: 10px; }
+        #message-box {
+            width: 100%; max-width: 400px; min-height: 60px; margin-top: 20px;
+            padding: 15px; border-radius: 10px; background-color: #2c2c2c;
+            font-size: 1.2rem; font-weight: bold; text-align: center; border-left: 5px solid #666; box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Sound To Vibe</h1>
+    
+    <button id="actionBtn" class="control-btn start">解析を開始する</button>
+
+    <div class="info-container">
+        <div class="status-val">現在の音量: <span id="dbValue">0</span> dB</div>
+        <div class="status-val">主な周波数: <span id="hzValue">0</span> Hz</div>
+        <canvas id="graphCanvas"></canvas>
+    </div>
+
+    <div id="message-box">ボタンを押してスタートしてください</div>
+
+    <script>
+        // JavaScript: 音声解析、グラフ、バイブレーション制御
+        const actionBtn = document.getElementById('actionBtn');
+        const dbValue = document.getElementById('dbValue');
+        const hzValue = document.getElementById('hzValue');
+        const canvas = document.getElementById('graphCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageBox = document.getElementById('message-box');
+
+        let audioContext = null;
+        let analyser = null;
+        let stream = null;
+        let isRunning = false;
+        let animationId = null;
+
+        // 20秒間のデータ保存用（60fps換算で約1200個のデータ）
+        const maxDataPoints = 1200;
+        const historyData = []; // { volume: 0, frequency: 0 }
+
+        // 誤作動防止用：過去2秒間（約120個分）のデータバッファ
+        const bufferSize = 120;
+        const volumeBuffer = [];
+        const freqBuffer = [];
+
+        // キャンバスのサイズ初期化
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+
+        actionBtn.addEventListener('click', async () => {
+            if (!isRunning) {
+                // 開始処理
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const source = audioContext.createMediaStreamSource(stream);
+                    
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048; // 周波数分解能
+                    source.connect(analyser);
+
+                    isRunning = true;
+                    actionBtn.textContent = '解析を停止する';
+                    actionBtn.className = 'control-btn stop';
+                    messageBox.textContent = '周囲の音を監視中...';
+                    messageBox.style.borderLeftColor = '#00e676';
+
+                    update();
+                } catch (err) {
+                    alert('マイクの許可が必要です: ' + err);
+                }
+            } else {
+                // 停止処理
+                stopAnalysis();
+            }
+        });
+
+        function stopAnalysis() {
+            isRunning = false;
+            actionBtn.textContent = '解析を開始する';
+            actionBtn.className = 'control-btn start';
+            messageBox.textContent = '停止中';
+            messageBox.style.borderLeftColor = '#666';
+            if (stream) stream.getTracks().forEach(track => track.stop());
+            if (audioContext) audioContext.close();
+            cancelAnimationFrame(animationId);
+            if (navigator.vibrate) navigator.vibrate(0); // バイブ停止
+        }
+
+        function update() {
+            if (!isRunning) return;
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+
+            // 1. 音量（dB換算の簡易版）の計算
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) { sum += dataArray[i]; }
+            const averageVolume = sum / bufferLength;
+            const dB = Math.round(averageVolume * 0.8); // 簡易的なスケール調整
+
+            // 2. 最も強い周波数（音高）の計算
+            let maxVal = 0;
+            let maxIndex = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                if (dataArray[i] > maxVal) { maxVal = dataArray[i]; maxIndex = i; }
+            }
+            const nyquist = audioContext.sampleRate / 2;
+            const hz = Math.round(maxIndex * nyquist / bufferLength);
+
+            // 画面の数値更新
+            dbValue.textContent = dB;
+            hzValue.textContent = hz > 0 && dB > 10 ? hz : 0;
+
+            // 3. 20秒グラフ用のデータ蓄積
+            historyData.push({ volume: dB, frequency: hz });
+            if (historyData.length > maxDataPoints) historyData.shift();
+
+            // 4. 誤作動防止用（2秒間）のデータ蓄積
+            volumeBuffer.push(dB);
+            freqBuffer.push(hz);
+            if (volumeBuffer.length > bufferSize) volumeBuffer.shift();
+            if (freqBuffer.length > bufferSize) freqBuffer.shift();
+
+            // 5. 2秒溜まったら判定ロジックを実行
+            if (volumeBuffer.length >= bufferSize) {
+                analyzePatternAndVibrate();
+            }
+
+            // 6. グラフ描画
+            drawGraph();
+
+            animationId = requestAnimationFrame(update);
+        }
+
+        // 判定とバイブレーションのトリガー（簡易版）
+        let lastVibrateTime = 0;
+        function analyzePatternAndVibrate() {
+            const now = Date.now();
+            // 連打防止（一度震わせたら5秒間は次の判定を待つ）
+            if (now - lastVibrateTime < 5000) return;
+
+            // 過去2秒間の平均音量を計算
+            const avgVol = volumeBuffer.reduce((a, b) => a + b, 0) / bufferSize;
+            // 過去2秒間の平均周波数を計算（音量がある程度ある時のみ）
+            const avgFreq = freqBuffer.reduce((a, b) => a + b, 0) / bufferSize;
+
+            // 基準値（しきい値）の仮設定
+            if (avgVol > 25) { // 周囲が一定以上うるさい時
+                if (navigator.vibrate) {
+                    
+                    // パターン4: 近づいてくる音（音量が右肩上がりの場合）
+                    // 2秒前の前半と後半で音量が上がっているか簡易判定
+                    const firstHalf = volumeBuffer.slice(0, bufferSize/2).reduce((a,b)=>a+b,0) / (bufferSize/2);
+                    const lastHalf = volumeBuffer.slice(bufferSize/2).reduce((a,b)=>a+b,0) / (bufferSize/2);
+                    
+                    if (lastHalf - firstHalf > 8) {
+                        messageBox.textContent = "⚠️ 何かが近づいています！";
+                        messageBox.style.borderLeftColor = "#ff5722";
+                        navigator.vibrate([100, 50, 100, 50, 100, 200, 600]); // ぶぶぶ・ぶーーーーーー
+                        lastVibrateTime = now;
+                        return;
+                    }
+
+                    // パターン1: 人の声帯域 (100Hz〜500Hz)
+                    if (avgFreq >= 100 && avgFreq <= 500) {
+                        messageBox.textContent = "🗣️ 人の話しかけ声を検知";
+                        messageBox.style.borderLeftColor = "#00e676";
+                        navigator.vibrate([300, 200, 300, 200, 300]); // ぶーー・ぶーー・ぶーー
+                        lastVibrateTime = now;
+                    }
+                    // パターン2: 低い音 (100Hz未満の重低音)
+                    else if (avgFreq < 100) {
+                        messageBox.textContent = "🚗 低い環境音・警告";
+                        messageBox.style.borderLeftColor = "#2196f3";
+                        navigator.vibrate([1000, 500, 1000]); // ぶーーーー・ぶーーーー
+                        lastVibrateTime = now;
+                    }
+                    // パターン3: 高い音 (1000Hz以上の高音)
+                    else if (avgFreq > 1000) {
+                        messageBox.textContent = "🔔 高い電子音・アラーム";
+                        messageBox.style.borderLeftColor = "#ffeb3b";
+                        navigator.vibrate([150, 100, 150, 100, 150]); // ぶぶ・ぶぶ・ぶぶ
+                        lastVibrateTime = now;
+                    }
+                }
+            }
+        }
+
+        // Canvasへのグラフ描画
+        function drawGraph() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (historyData.length === 0) return;
+
+            // 音量グラフ（緑色の線）の描画
+            ctx.beginPath();
+            ctx.strokeStyle = '#00e676';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < historyData.length; i++) {
+                const x = (i / maxDataPoints) * canvas.width;
+                // 上半分に音量を描画
+                const y = (canvas.height / 2) - (historyData[i].volume / 60) * (canvas.height / 2);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // 周波数グラフ（青色のドット）の描画
+            for (let i = 0; i < historyData.length; i++) {
+                const x = (i / maxDataPoints) * canvas.width;
+                // 下半分に周波数を描画 (最大4000Hzとしてマッピング)
+                const freqRatio = Math.min(historyData[i].frequency / 4000, 1);
+                const y = canvas.height - (freqRatio * (canvas.height / 2));
+                
+                if (historyData[i].volume > 15) { // ある程度音量がある時だけドットを打つ
+                    ctx.fillStyle = '#2196f3';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+            }
+
+            // 中央の境界線
+            ctx.beginPath();
+            ctx.strokeStyle = '#333333';
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+        }
+
+        // 画面サイズが変わったらCanvasサイズも追従
+        window.addEventListener('resize', () => {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        });
+    </script>
+</body>
+</html>
