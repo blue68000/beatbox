@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>かんたんボイスメモ</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .button-group { margin-bottom: 10px; }
+        button { padding: 8px 15px; margin-right: 5px; cursor: pointer; }
+        /* テキストエリアを見やすく、編集もできるように変更 */
+        #result-box {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            margin-top: 10px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>簡易ボイスメモアプリ</h2>
+    
+    <div class="button-group">
+        <button id="start-btn" style="background-color: #e3faf2;">🎤 録音開始</button>
+        <button id="stop-btn" style="background-color: #ffe3e3;">⏹️ 停止</button>
+        <button id="clear-btn">✨ クリア</button>
+        <button id="download-btn" style="background-color: #e8f4fd;">💾 保存(DL)</button>
+    </div>
+    
+    <textarea id="result-box" placeholder="ここに文字起こしされたテキストが表示されます。直接編集もできますよ！"></textarea>
+
+    <script>
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        
+        if (!SpeechRecognition) {
+            alert("お使いのブラウザは音声認識に対応していません。ChromeやEdgeでお試しください。");
+        } else {
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'ja-JP';
+            recognition.interimResults = true;
+            recognition.continuous = true;
+
+            const startBtn = document.getElementById('start-btn');
+            const stopBtn = document.getElementById('stop-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            const downloadBtn = document.getElementById('download-btn');
+            const resultBox = document.getElementById('result-box');
+
+            // これまでに確定したテキストを保存しておく変数
+            let finalTranscript = '';
+
+            // 🎤 録音開始
+            startBtn.onclick = () => {
+                recognition.start();
+            };
+
+            // ⏹️ 停止
+            stopBtn.onclick = () => {
+                recognition.stop();
+            };
+
+            // ✨ クリア（テキストエリアと記憶をリセット）
+            clearBtn.onclick = () => {
+                if(confirm("メモをクリアしますか？")) {
+                    finalTranscript = '';
+                    resultBox.value = '';
+                }
+            };
+
+            // 💾 保存（DL）
+            downloadBtn.onclick = () => {
+                const text = resultBox.value;
+                if (!text) {
+                    alert("保存するテキストがありません。");
+                    return;
+                }
+
+                // テキストデータをダウンロード用のURLに変換する魔法
+                const blob = new Blob([text], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                
+                // ファイル名（現在の日時を付けてユニークに）
+                const now = new Date();
+                const filename = `voicememo_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.txt`;
+                
+                a.download = filename;
+                a.click(); // 擬似的にクリックしてダウンロードを実行
+                URL.revokeObjectURL(a.href); // メモリ解放
+            };
+
+            // 音声を認識したとき
+            recognition.onresult = (event) => {
+                let interimTranscript = ''; // 話している途中の文字
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + '\n'; // 確定したら改行付きで追加
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                
+                // 確定した文字 ＋ 現在話している文字 を画面に表示
+                resultBox.value = finalTranscript + interimTranscript;
+            };
+        }
+    </script>
+
+</body>
+</html>
