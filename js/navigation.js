@@ -5,6 +5,7 @@ const navigation = `
             <li><a href="/beatbox/doc/beatbox.html">ビートボックス</a></li>
             <li><a href="/beatbox/doc/perfectpitch.html">音程チェック</a></li>
             <li><a href="/beatbox/doc/sound2vibe.html">Sound To Vibe</a></li>
+            <li><a href="/beatbox/doc/voicememo.html">音声メモ</a></li>
         </ul>
     </nav>
 `;
