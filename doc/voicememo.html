@@ -92,21 +92,26 @@
                 URL.revokeObjectURL(a.href); // メモリ解放
             };
 
-            // 音声を認識したとき
-            recognition.onresult = (event) => {
-                let interimTranscript = ''; // 話している途中の文字
+           // 音声を認識したとき
+           recognition.onresult = (event) => {
+               let currentFinal = '';     // 今回のイベント時点で「確定」している全文字列
+               let interimTranscript = ''; // 現在「話している途中」の文字列
 
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + '\n'; // 確定したら改行付きで追加
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
-                }
-                
-                // 確定した文字 ＋ 現在話している文字 を画面に表示
-                resultBox.value = finalTranscript + interimTranscript;
-            };
+               // 過去の記憶に足すのではなく、event.results の中身を最初から全スキャンする
+               for (let i = 0; i < event.results.length; ++i) {
+                   if (event.results[i].isFinal) {
+                       // 確定した部分を順番に1本の文章につなげる
+                       currentFinal += event.results[i][0].transcript;
+                   } else {
+                       // 途中の部分をつなげる
+                       interimTranscript += event.results[i][0].transcript;
+                   }
+               }
+               
+               // 画面のテキストエリアには [最新の全確定文字] ＋ [いま喋ってる文字] を表示
+               resultBox.value = currentFinal + interimTranscript;
+           };
+
         }
     </script>
 
