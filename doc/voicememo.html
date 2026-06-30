@@ -33,86 +33,86 @@
     <textarea id="result-box" placeholder="ここに文字起こしされたテキストが表示されます。直接編集もできますよ！"></textarea>
 
     <script>
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        
-        if (!SpeechRecognition) {
-            alert("お使いのブラウザは音声認識に対応していません。ChromeやEdgeでお試しください。");
-        } else {
-            const recognition = new SpeechRecognition();
-            recognition.lang = 'ja-JP';
-            recognition.interimResults = true;
-            recognition.continuous = true;
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-            const startBtn = document.getElementById('start-btn');
-            const stopBtn = document.getElementById('stop-btn');
-            const clearBtn = document.getElementById('clear-btn');
-            const downloadBtn = document.getElementById('download-btn');
-            const resultBox = document.getElementById('result-box');
+      if (!SpeechRecognition) {
+          alert("お使いのブラウザは音声認識に対応していません。ChromeやEdgeでお試しください。");
+      } else {
+          const recognition = new SpeechRecognition();
+          recognition.lang = 'ja-JP';
+          recognition.interimResults = true;
+          recognition.continuous = true;
 
-            // これまでに確定したテキストを保存しておく変数
-            let finalTranscript = '';
+          const startBtn = document.getElementById('start-btn');
+          const stopBtn = document.getElementById('stop-btn');
+          const clearBtn = document.getElementById('clear-btn');
+          const downloadBtn = document.getElementById('download-btn');
+          const resultBox = document.getElementById('result-box');
 
-            // 🎤 録音開始
-            startBtn.onclick = () => {
-                recognition.start();
-            };
+          // 💡 ユーザーが明示的にストップを押したかどうかを管理するフラグ
+          let isUserStopping = false;
 
-            // ⏹️ 停止
-            stopBtn.onclick = () => {
-                recognition.stop();
-            };
+          // 🎤 録音開始
+          startBtn.onclick = () => {
+              isUserStopping = false; // フラグをリセット
+              recognition.start();
+              startBtn.style.backgroundColor = "#a7f3d0"; // 録音中っぽく色を変える
+          };
 
-            // ✨ クリア（テキストエリアと記憶をリセット）
-            clearBtn.onclick = () => {
-                if(confirm("メモをクリアしますか？")) {
-                    finalTranscript = '';
-                    resultBox.value = '';
-                }
-            };
+          // ⏹️ 停止
+          stopBtn.onclick = () => {
+              isUserStopping = true; // ユーザーが止めたよ！という印をつける
+              recognition.stop();
+              startBtn.style.backgroundColor = "#e3faf2"; // ボタンの色を戻す
+          };
 
-            // 💾 保存（DL）
-            downloadBtn.onclick = () => {
-                const text = resultBox.value;
-                if (!text) {
-                    alert("保存するテキストがありません。");
-                    return;
-                }
+          // ✨ クリア
+          clearBtn.onclick = () => {
+              if(confirm("メモをクリアしますか？")) {
+                  resultBox.value = '';
+              }
+          };
 
-                // テキストデータをダウンロード用のURLに変換する魔法
-                const blob = new Blob([text], { type: 'text/plain' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                
-                // ファイル名（現在の日時を付けてユニークに）
-                const now = new Date();
-                const filename = `voicememo_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.txt`;
-                
-                a.download = filename;
-                a.click(); // 擬似的にクリックしてダウンロードを実行
-                URL.revokeObjectURL(a.href); // メモリ解放
-            };
+          // 💾 保存（DL）
+          downloadBtn.onclick = () => {
+              const text = resultBox.value;
+              if (!text) { alert("保存するテキストがありません。"); return; }
+              const blob = new Blob([text], { type: 'text/plain' });
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              const now = new Date();
+              const filename = `voicememo_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.txt`;
+              a.download = filename;
+              a.click();
+              URL.revokeObjectURL(a.href);
+          };
 
-           // 音声を認識したとき
-           recognition.onresult = (event) => {
-               let currentFinal = '';     // 今回のイベント時点で「確定」している全文字列
-               let interimTranscript = ''; // 現在「話している途中」の文字列
+          // 🗣️ 音声を認識したとき（前回の改善版！）
+          recognition.onresult = (event) => {
+              let currentFinal = '';
+              let interimTranscript = '';
 
-               // 過去の記憶に足すのではなく、event.results の中身を最初から全スキャンする
-               for (let i = 0; i < event.results.length; ++i) {
-                   if (event.results[i].isFinal) {
-                       // 確定した部分を順番に1本の文章につなげる
-                       currentFinal += event.results[i][0].transcript;
-                   } else {
-                       // 途中の部分をつなげる
-                       interimTranscript += event.results[i][0].transcript;
-                   }
-               }
-               
-               // 画面のテキストエリアには [最新の全確定文字] ＋ [いま喋ってる文字] を表示
-               resultBox.value = currentFinal + interimTranscript;
-           };
+              for (let i = 0; i < event.results.length; ++i) {
+                  if (event.results[i].isFinal) {
+                      currentFinal += event.results[i][0].transcript + '\n'; // 改行付き
+                  } else {
+                      interimTranscript += event.results[i][0].transcript;
+                  }
+              }
+              resultBox.value = currentFinal + interimTranscript;
+          };
 
-        }
+          // 💡【ここがポイント！】音声認識が（勝手に、あるいは意図して）終了したとき
+          recognition.onend = () => {
+              // ユーザーが停止ボタンを押していないのに終了した＝ブラウザが勝手に止めた場合
+              if (!isUserStopping) {
+                  console.log("ブラウザによって切断されたため、自動再開します...");
+                  recognition.start(); // ゾンビのように不屈の精神で即座に再起動！
+              } else {
+                  console.log("ユーザーによって正常に停止されました。");
+              }
+          };
+      }
     </script>
 
 </body>
